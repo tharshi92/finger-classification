@@ -15,13 +15,13 @@ from keras.callbacks import EarlyStopping, Callback
 
 
 # load data
-X = np.load('images.npy')
+X = np.load('../finger-counter-data/images.npy')
 
 # input image dimensions
 img_rows, img_cols = X.shape[1], X.shape[2]
 
 # load labels
-Y = np.load('labels.npy')
+Y = np.load('../finger-counter-data/labels.npy')
 
 # define input shape for model
 input_shape = (img_rows, img_cols, 3)

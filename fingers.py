@@ -76,11 +76,11 @@ for i in tqdm(range(n_files)):
         pass
 #%%
 # save images and labels as numpy arrays
-np.save('images.npy', np.stack(images, axis=0))
+np.save('../finger-counter-data/images.npy', np.stack(images, axis=0))
 
 hots = np.zeros((len(labels), max(labels) + 1))
 hots[np.arange(len(labels)), labels] = 1
-np.save('labels.npy', hots)
+np.save('../finger-counter-data/labels.npy', hots)
 #%% Plot example photos
 
 fig = plt.figure()
