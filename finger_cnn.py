@@ -9,30 +9,36 @@ import numpy as np
 
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten
+from keras.layers import Dense, Dropout, Flatten, ELU
 from keras.layers import Conv2D, MaxPooling2D
-from keras.callbacks import EarlyStopping, Callback
+from keras.callbacks import EarlyStopping
+import os
 
+from sklearn.metrics import confusion_matrix
+import seaborn as sb
+import matplotlib.pyplot as plt
 
 # load data
 X = np.load('../finger-counter-data/images.npy')
 
 # input image dimensions
-img_rows, img_cols = X.shape[1], X.shape[2]
+n_hands, img_rows, img_cols = X.shape[0], X.shape[1], X.shape[2]
 
 # load labels
 Y = np.load('../finger-counter-data/labels.npy')
 
 # define input shape for model
 input_shape = (img_rows, img_cols, 3)
-
-n_hands = X.shape[0]
 #%%
-# shuffle data
-np.random.seed(27)
-
-indices = np.arange(n_hands)
-np.random.shuffle(indices)
+if os.path.isfile('indicies.npy'):
+    print('Data has already been partitioned, loading...', end='')
+    indices = np.load('indicies.npy')
+    print('Done.\n')
+else:
+    indices = np.arange(n_hands)
+    np.random.shuffle(indices)
+    
+    np.save('indicies.npy', indices)
 
 X = X[indices, :, :, :]
 Y = Y[indices, :]
@@ -50,11 +56,9 @@ x = X[n_test:, :, :, :]
 y = Y[n_test:, :]
 
 
-#%% Model
-import os
-from keras.layers import ELU
+#%% Mode
 
-batch_size = 32
+batch_size = 128
 num_classes = 6
 epochs = 1000
 split = 0.30
@@ -93,16 +97,18 @@ model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer='adadelta',
               metrics=['accuracy'])
 
-model.summary()
-
 earlystop = EarlyStopping(verbose=True,
                           patience=pat,
                           monitor='val_loss')
 if os.path.isfile('cnn_weights.h5'):
-    print('Weights already exist~~')
+    print('Weights already exist, loading...', end='')
     model.load_weights('cnn_weights.h5')
+    print('Done.\n')
 else:
-    model.fit(x, y,
+    model.summary()
+    
+    print('Training model...\n')
+    hist = model.fit(x, y,
               batch_size=batch_size,
               epochs=epochs,
               verbose=1, 
@@ -110,15 +116,42 @@ else:
               validation_split=split,
               callbacks=[earlystop])
     model.save_weights('cnn_weights.h5')
+    print('\nDone.\n')
+    
+    print('Plotting training history...', end='')
 
+    # plot acc and loss
+    fig4 = plt.figure()
+    ax4_1 = plt.subplot(211)
+    ax4_2 = plt.subplot(212, sharex=ax4_1)
+    
+    ax4_1.semilogy(hist.history['accuracy'], label='train')
+    ax4_1.semilogy(hist.history['val_accuracy'], label='validation')
+    
+    ax4_2.semilogy(hist.history['loss'], label='train')
+    ax4_2.semilogy(hist.history['val_loss'], label='validation')
+    
+    ax4_1.set_title('Training History')
+    plt.xlabel("epochs")
+    ax4_1.set_ylabel('accuracy')
+    ax4_2.set_ylabel('loss')
+    plt.setp(ax4_1.get_xticklabels(), visible=False)
+    
+    ax4_1.legend(loc='lower right')
+    ax4_2.legend(loc='lower left')
+    plt.savefig("training_history.png", dpi=300)
+    
+    print('Done.\n')
+
+print('Calculating test set stats...', end='')
 score = model.evaluate(x_test, y_test, verbose=0)
+print('Done.')
 print('Test loss:', score[0])
-print('Test accuracy:', score[1])
+print('Test accuracy:', score[1], '\n')
+
 
 #%% Confusion matrix
-from sklearn.metrics import confusion_matrix
-import seaborn as sb
-import matplotlib.pyplot as plt
+
 
 y_pred = model.predict(x_test, verbose=1)
 con_mat = confusion_matrix(y_test.argmax(axis=1), 
@@ -126,8 +159,11 @@ con_mat = confusion_matrix(y_test.argmax(axis=1),
 
 prec = np.diag(con_mat) / np.sum(con_mat, axis=0)
 recall = np.diag(con_mat) / np.sum(con_mat, axis=1)
+
 beta = 1
 f_score = (1 + beta**2) * prec * recall / (beta**2 * prec + recall)
+
+print('Plotting and saving metric figures...', end='')
 
 plt.figure()
 sb.heatmap(con_mat, annot=True)
@@ -172,6 +208,8 @@ plt.title('F-Score, beta = {}'.format(beta))
 plt.xlabel('Class')
 plt.savefig('f_score.png')
 
+print('Done.\n')
+
 #%% Visualize Model
 
 import keract
@@ -182,47 +220,60 @@ u = x_test[idx, :, :, :].reshape(1, img_rows, img_cols, 3)
 activations = keract.get_activations(model, u, auto_compile=True)
 
 # test image plotted
+print('Plotting and saving test image...', end='')
+
 plt.figure()
 plt.imshow(Image.fromarray(u[0, :, :, :], 'RGB'))
 plt.axis('off')
 pred_class = np.argmax(model.predict(u, verbose=1))
 plt.title('Predicted #: {}'.format(pred_class))
-plt.savefig('00_test_image.png')
+plt.savefig('./visuals/00_test_image.png')
+print('Done.\n')
 
 #%% feature maps
+
+print('Plotting and saving activations...\n')
+
 keract.display_activations(activations, 
                             cmap='viridis', 
                             save=True, 
-                            directory='.', 
+                            directory='./visuals/', 
                             data_format='channels_last')
+
+
 # keract.display_heatmaps(activations, u, save=True)
 
+print('\nDone.\n')
 
-#%% visualizing filters
 
-layer_dict = dict([(layer.name, layer) for layer in model.layers])
+#%% Layer Viz - Filters
+#Select a convolutional layer
+layer = model.layers[0]
 
-layer_name = 'input'
+#Get weights
+kernels, biases = layer.get_weights()
 
-# Grab the filters and biases for that layer
-filters, biases = layer_dict[layer_name].get_weights()
+#Normalize kernels into [0, 1] range for proper visualization
+kernels = np.moveaxis(kernels, 3, 0)
+spread = (np.max(kernels, axis=0) - np.min(kernels, axis=0))
+kernels = (kernels - np.min(kernels, axis=0)) / spread
+kernels = np.moveaxis(kernels, 0, -1)
 
-# Normalize filter values to a range of 0 to 1 so we can visualize them
-f_min, f_max = np.amin(filters), np.amax(filters)
-filters = (filters - f_min) / (f_max - f_min)
+#Weights are usually (width, height, channels, num_filters)
+#Save weight images
 
-# Plot first few filters
-n_filters, index = 6, 1
+# Plot filters
+n_filters, index = 8, 1
+fig = plt.figure()
 for i in range(n_filters):
-    f = filters[:, :, :, i]
-    
-    # Plot each channel separately
-    for j in range(3):
+    f = kernels[:, :, :, i]
 
-        ax = plt.subplot(n_filters, 3, index)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        
-        plt.imshow(f[:, :, j], cmap='viridis')
-        index += 1
-plt.savefig('conv_1_filters.png')
+    ax = plt.subplot(2, n_filters // 2, index)
+    plt.title('filter #{}'.format(index))
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    plt.imshow(f)
+    index += 1
+plt.suptitle('Filters for layer: {}'.format(layer_name))
+plt.savefig('./visuals/conv_1_filters.png')
