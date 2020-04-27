@@ -32,7 +32,7 @@ plt.style.use('seaborn')
 #%% data preprocessing
 
 # import training images
-directory = './images'
+directory = '../finger-counter-data/images'
 
 files = os.listdir(directory)
 n_files = len(files)
@@ -67,7 +67,7 @@ for i in tqdm(range(n_files)):
             
         # crop and resize image
         im = im.crop((x_min, y_min, x_max, y_max))
-        im = im.resize((50, 90), Image.ANTIALIAS)
+        im = im.resize((100, 180), Image.ANTIALIAS)
         
         # add to list of images
         images.append(im)

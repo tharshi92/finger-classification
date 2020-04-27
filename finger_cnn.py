@@ -29,6 +29,8 @@ input_shape = (img_rows, img_cols, 3)
 n_hands = X.shape[0]
 #%%
 # shuffle data
+np.random.seed(27)
+
 indices = np.arange(n_hands)
 np.random.shuffle(indices)
 
@@ -50,27 +52,45 @@ y = Y[n_test:, :]
 
 #%% Model
 import os
+from keras.layers import ELU
 
-batch_size = 16
+batch_size = 32
 num_classes = 6
-epochs = 100
-split = 0.25
-pat = 10
+epochs = 1000
+split = 0.30
+pat = 300
 
 model = Sequential()
-model.add(Conv2D(16, kernel_size=(3, 3),
-                 activation='relu',
-                 input_shape=input_shape))
-model.add(Conv2D(32, (3, 3), activation='relu'))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.25))
+
+model.add(Conv2D(8, kernel_size=(3, 3), 
+                 input_shape=input_shape, 
+                 name='input'))
+model.add(ELU(name='ELU_1'))
+model.add(MaxPooling2D(pool_size=(2, 2), name='pool_1', strides=(2,2)))
+model.add(Dropout(0.25, name='dropout_1'))
+
+model.add(Conv2D(8, kernel_size=(3, 3)))
+model.add(ELU(name='ELU_2'))
+model.add(MaxPooling2D(pool_size=(2, 2), name='pool_2', strides=(2,2)))
+model.add(Dropout(0.25, name='dropout_2'))
+
+model.add(Conv2D(8, kernel_size=(3, 3)))
+model.add(ELU(name='ELU_3'))
+model.add(MaxPooling2D(pool_size=(2, 2), name='pool_3', strides=(2,2)))
+model.add(Dropout(0.25, name='dropout_3'))
+
+model.add(Conv2D(8, kernel_size=(3, 3)))
+model.add(ELU(name='ELU_4'))
+model.add(MaxPooling2D(pool_size=(2, 2), name='pool_4', strides=(2,2)))
+model.add(Dropout(0.25, name='dropout_4'))
+
 model.add(Flatten())
-model.add(Dense(128, activation='relu'))
-model.add(Dropout(0.50))
-model.add(Dense(num_classes, activation='softmax'))
+model.add(Dense(512, activation='relu', name='feedforward'))
+model.add(Dropout(0.50, name='dropout_dense'))
+model.add(Dense(num_classes, activation='softmax', name='softmax'))
 
 model.compile(loss=keras.losses.categorical_crossentropy,
-              optimizer=keras.optimizers.Adadelta(),
+              optimizer='adadelta',
               metrics=['accuracy'])
 
 model.summary()
@@ -95,8 +115,65 @@ score = model.evaluate(x_test, y_test, verbose=0)
 print('Test loss:', score[0])
 print('Test accuracy:', score[1])
 
-#%% Visualize Model
+#%% Confusion matrix
+from sklearn.metrics import confusion_matrix
+import seaborn as sb
 import matplotlib.pyplot as plt
+
+y_pred = model.predict(x_test, verbose=1)
+con_mat = confusion_matrix(y_test.argmax(axis=1), 
+                          y_pred.argmax(axis=1))
+
+prec = np.diag(con_mat) / np.sum(con_mat, axis=0)
+recall = np.diag(con_mat) / np.sum(con_mat, axis=1)
+beta = 1
+f_score = (1 + beta**2) * prec * recall / (beta**2 * prec + recall)
+
+plt.figure()
+sb.heatmap(con_mat, annot=True)
+plt.title('Confusion Matrix')
+plt.xlabel('Prediction')
+plt.ylabel('Ground Truth')
+plt.savefig('confusion_mat.png')
+
+plt.figure()
+sb.heatmap(prec.reshape((num_classes, 1)).T, annot=True)
+plt.title('Precision')
+plt.xlabel('Class')
+plt.tick_params(
+    axis='y',
+    which='both',
+    left=False,
+    right=False,
+    labelleft=False)
+plt.savefig('precision.png')
+
+plt.figure()
+sb.heatmap(recall.reshape((num_classes, 1)), annot=True)
+plt.title('Recall')
+plt.ylabel('Classe')
+plt.tick_params(
+    axis='x',
+    which='both',
+    bottom=False,      
+    top=False,         
+    labelbottom=False) 
+plt.savefig('recall.png')
+
+plt.figure()
+sb.heatmap(f_score.reshape((num_classes, 1)).T, annot=True, square=True)
+plt.tick_params(
+    axis='y',
+    which='both',
+    left=False,
+    right=False,
+    labelleft=False)
+plt.title('F-Score, beta = {}'.format(beta))
+plt.xlabel('Class')
+plt.savefig('f_score.png')
+
+#%% Visualize Model
+
 import keract
 from PIL import Image
 
@@ -118,17 +195,34 @@ keract.display_activations(activations,
                             save=True, 
                             directory='.', 
                             data_format='channels_last')
-#keract.display_heatmaps(activations, u, save=True)
+# keract.display_heatmaps(activations, u, save=True)
 
-#%% Confusion matrix
-from sklearn.metrics import confusion_matrix
-import seaborn as sb
 
-y_pred = model.predict(x_test, verbose=1)
-con_mat = confusion_matrix(y_test.argmax(axis=1), 
-                          y_pred.argmax(axis=1))
+#%% visualizing filters
 
-plt.figure()
-sb.heatmap(con_mat, annot=True)
-plt.title('Confusion Matrix')
-plt.savefig('confusion_mat.png')
+layer_dict = dict([(layer.name, layer) for layer in model.layers])
+
+layer_name = 'input'
+
+# Grab the filters and biases for that layer
+filters, biases = layer_dict[layer_name].get_weights()
+
+# Normalize filter values to a range of 0 to 1 so we can visualize them
+f_min, f_max = np.amin(filters), np.amax(filters)
+filters = (filters - f_min) / (f_max - f_min)
+
+# Plot first few filters
+n_filters, index = 6, 1
+for i in range(n_filters):
+    f = filters[:, :, :, i]
+    
+    # Plot each channel separately
+    for j in range(3):
+
+        ax = plt.subplot(n_filters, 3, index)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
+        plt.imshow(f[:, :, j], cmap='viridis')
+        index += 1
+plt.savefig('conv_1_filters.png')
